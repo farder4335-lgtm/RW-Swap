@@ -11,7 +11,6 @@ import net.minecraft.resources.Identifier;
 import net.minecraft.world.inventory.AbstractContainerMenu;
 import net.minecraft.world.inventory.ContainerInput;
 import net.minecraft.world.phys.Vec3;
-import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 
 import net.fabricmc.api.ClientModInitializer;
@@ -59,9 +58,11 @@ public final class RWSwapClient implements ClientModInitializer {
         }
 
         if (this.swapping) {
-            // Keep horizontal movement stopped while the configured delay and inventory action run.
-            Vec3 velocity = player.getDeltaMovement();
-            player.setDeltaMovement(0.0, velocity.y, 0.0);
+            // Freeze the player in place for the full pause: clear velocity and movement input.
+            player.setDeltaMovement(Vec3.ZERO);
+            player.input.forwardImpulse = 0.0F;
+            player.input.leftImpulse = 0.0F;
+            player.input.jumping = false;
             player.setSprinting(false);
 
             if (mc.gui.screen() != null || player.containerMenu != player.inventoryMenu) {
@@ -117,8 +118,7 @@ public final class RWSwapClient implements ClientModInitializer {
             return;
         }
 
-        // Cycle the selected hotbar stack through the original inventory slot.
-        // This temporarily puts the head in the hotbar, then finishes with the head in offhand.
+        // Move the head through the hotbar, then place it in the offhand.
         click(mc, player, menu, this.sourceSlot);
         click(mc, player, menu, this.hotbarSlot);
         click(mc, player, menu, this.sourceSlot);
