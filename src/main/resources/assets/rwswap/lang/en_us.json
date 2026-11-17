@@ -1,0 +1,8 @@
+{
+  "key.category.rwswap.main": "RW Swap",
+  "key.rwswap.swap_head_offhand": "Swap player head with offhand",
+  "screen.rwswap.title": "RW Swap Settings",
+  "screen.rwswap.delay": "Swap delay (milliseconds)",
+  "text.rwswap.no_player_head": "No player head found in inventory",
+  "text.rwswap.swap_failed": "Could not complete the offhand swap"
+}
