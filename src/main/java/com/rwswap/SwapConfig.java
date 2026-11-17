@@ -11,7 +11,7 @@ import net.fabricmc.loader.api.FabricLoader;
 
 /** Persistent settings for RW Swap. */
 public final class SwapConfig {
-    private static final int DEFAULT_DELAY = 300;
+    private static final int DEFAULT_DELAY = 100;
     private static final int MAX_DELAY = 5000;
     private static final Path FILE = FabricLoader.getInstance().getConfigDir().resolve("rwswap.properties");
     private static int delayMillis = DEFAULT_DELAY;
