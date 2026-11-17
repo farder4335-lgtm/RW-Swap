@@ -1,0 +1,8 @@
+{
+  "key.category.rwswap.main": "RW Swap",
+  "key.rwswap.swap_head_offhand": "Поменять голову игрока с левой рукой",
+  "screen.rwswap.title": "Настройки RW Swap",
+  "screen.rwswap.delay": "Задержка обмена (мс)",
+  "text.rwswap.no_player_head": "Голова игрока не найдена в инвентаре",
+  "text.rwswap.swap_failed": "Не удалось завершить обмен с левой рукой"
+}
