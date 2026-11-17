@@ -58,11 +58,8 @@ public final class RWSwapClient implements ClientModInitializer {
         }
 
         if (this.swapping) {
-            // Freeze the player in place for the full pause: clear velocity and movement input.
+            // Cancel existing momentum immediately while the pause is active.
             player.setDeltaMovement(Vec3.ZERO);
-            player.input.forwardImpulse = 0.0F;
-            player.input.leftImpulse = 0.0F;
-            player.input.jumping = false;
             player.setSprinting(false);
 
             if (mc.gui.screen() != null || player.containerMenu != player.inventoryMenu) {
@@ -87,7 +84,6 @@ public final class RWSwapClient implements ClientModInitializer {
             return;
         }
 
-        // Use the selected hotbar slot unless it contains the head itself.
         this.hotbarSlot = selectedHotbarSlot == this.sourceSlot
                 ? FIRST_HOTBAR_SLOT + ((player.getInventory().getSelectedSlot() + 1) % 9)
                 : selectedHotbarSlot;
@@ -118,7 +114,6 @@ public final class RWSwapClient implements ClientModInitializer {
             return;
         }
 
-        // Move the head through the hotbar, then place it in the offhand.
         click(mc, player, menu, this.sourceSlot);
         click(mc, player, menu, this.hotbarSlot);
         click(mc, player, menu, this.sourceSlot);
