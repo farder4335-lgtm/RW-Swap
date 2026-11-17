@@ -62,6 +62,10 @@ public final class RWSwapClient implements ClientModInitializer {
             // Keep horizontal movement stopped while the configured delay and inventory action run.
             Vec3 velocity = player.getDeltaMovement();
             player.setDeltaMovement(0.0, velocity.y, 0.0);
+            player.input.forwardImpulse = 0.0F;
+            player.input.leftImpulse = 0.0F;
+            player.input.jumping = false;
+            player.setSprinting(false);
 
             if (mc.gui.screen() != null || player.containerMenu != player.inventoryMenu) {
                 reset();
