@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "id": "rwswap",
+  "version": "${version}",
+  "name": "RW Swap",
+  "description": "Swap a player head with the offhand using a configurable keybind and delay.",
+  "authors": ["RW Swap"],
+  "license": "MIT",
+  "environment": "client",
+  "entrypoints": {
+    "client": ["com.rwswap.RWSwapClient"],
+    "modmenu": ["com.rwswap.RWSwapModMenu"]
+  },
+  "depends": {
+    "fabricloader": ">=0.20.1",
+    "minecraft": "~26.2",
+    "java": ">=25",
+    "fabric-api": "*"
+  }
+}
