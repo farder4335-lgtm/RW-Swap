@@ -17,17 +17,18 @@ import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.keymapping.v1.KeyMappingHelper;
 
-/** Client-side player-head/offhand swapper. It never uses the armor/head equipment slot. */
+/** Client-side player-head inventory action. */
 public final class RWSwapClient implements ClientModInitializer {
-    private static final int FIRST_STORAGE_SLOT = 9;
-    private static final int LAST_STORAGE_SLOT = 44;
-    private static final int OFFHAND_SLOT = 45;
+    private static final int FIRST_MAIN_SLOT = 9;
+    private static final int LAST_MAIN_SLOT = 35;
+    private static final int FIRST_HOTBAR_SLOT = 36;
+    private static final int LAST_HOTBAR_SLOT = 44;
 
     private KeyMapping swapKey;
-    private int step;
     private int sourceSlot = -1;
-    private long nextStepAtNanos;
-    private boolean swapping;
+    private int hotbarSlot = -1;
+    private long executeAtNanos;
+    private boolean pending;
 
     @Override
     public void onInitializeClient() {
@@ -49,12 +50,18 @@ public final class RWSwapClient implements ClientModInitializer {
 
         LocalPlayer player = mc.player;
         if (player == null || mc.gameMode == null) {
-            this.swapping = false;
+            this.pending = false;
             return;
         }
 
-        if (this.swapping) {
-            if (System.nanoTime() >= this.nextStepAtNanos) runStep(mc, player);
+        if (this.pending) {
+            if (mc.gui.screen() != null || player.containerMenu != player.inventoryMenu) {
+                this.pending = false;
+                return;
+            }
+            if (System.nanoTime() >= this.executeAtNanos) {
+                runTransferSequence(mc, player);
+            }
             return;
         }
 
@@ -63,56 +70,47 @@ public final class RWSwapClient implements ClientModInitializer {
         AbstractContainerMenu menu = player.inventoryMenu;
         if (player.containerMenu != menu || !menu.getCarried().isEmpty()) return;
 
-        for (int slot = FIRST_STORAGE_SLOT; slot <= LAST_STORAGE_SLOT; slot++) {
-            ItemStack stack = menu.getSlot(slot).getItem();
-            if (stack.is(Items.PLAYER_HEAD)) {
-                this.sourceSlot = slot;
-                this.step = 0;
-                this.swapping = true;
-                this.nextStepAtNanos = 0L;
-                return;
-            }
-        }
-
-        player.sendOverlayMessage(Component.translatable("text.rwswap.no_player_head"));
-    }
-
-    private void runStep(Minecraft mc, LocalPlayer player) {
-        AbstractContainerMenu menu = player.inventoryMenu;
-        if (player.containerMenu != menu || mc.gui.screen() != null) {
-            this.swapping = false;
+        this.hotbarSlot = FIRST_HOTBAR_SLOT + player.getInventory().getSelectedSlot();
+        this.sourceSlot = findPlayerHeadSlot(menu, this.hotbarSlot);
+        if (this.sourceSlot < 0) {
+            player.sendOverlayMessage(Component.translatable("text.rwswap.no_player_head"));
             return;
         }
 
-        switch (this.step) {
-            case 0 -> {
-                if (!menu.getSlot(this.sourceSlot).getItem().is(Items.PLAYER_HEAD)) {
-                    this.swapping = false;
-                    return;
-                }
-                click(mc, player, menu, this.sourceSlot);
-            }
-            case 1 -> {
-                if (menu.getCarried().isEmpty()) {
-                    this.swapping = false;
-                    return;
-                }
-                click(mc, player, menu, OFFHAND_SLOT);
-            }
-            case 2 -> {
-                if (!menu.getCarried().isEmpty()) click(mc, player, menu, this.sourceSlot);
-            }
-            default -> {
-                if (!menu.getSlot(OFFHAND_SLOT).getItem().is(Items.PLAYER_HEAD)) {
-                    player.sendOverlayMessage(Component.translatable("text.rwswap.swap_failed"));
-                }
-                this.swapping = false;
-                return;
-            }
+        this.pending = true;
+        this.executeAtNanos = System.nanoTime() + SwapConfig.getDelayMillis() * 1_000_000L;
+    }
+
+    private static int findPlayerHeadSlot(AbstractContainerMenu menu, int targetHotbarSlot) {
+        for (int slot = FIRST_MAIN_SLOT; slot <= LAST_MAIN_SLOT; slot++) {
+            if (menu.getSlot(slot).getItem().is(Items.PLAYER_HEAD)) return slot;
+        }
+        for (int slot = FIRST_HOTBAR_SLOT; slot <= LAST_HOTBAR_SLOT; slot++) {
+            if (slot != targetHotbarSlot && menu.getSlot(slot).getItem().is(Items.PLAYER_HEAD)) return slot;
+        }
+        return -1;
+    }
+
+    private void runTransferSequence(Minecraft mc, LocalPlayer player) {
+        AbstractContainerMenu menu = player.inventoryMenu;
+        if (player.containerMenu != menu || mc.gui.screen() != null
+                || !menu.getCarried().isEmpty()
+                || !menu.getSlot(this.sourceSlot).getItem().is(Items.PLAYER_HEAD)) {
+            this.pending = false;
+            return;
         }
 
-        this.step++;
-        this.nextStepAtNanos = System.nanoTime() + SwapConfig.getDelayMillis() * 1_000_000L;
+        // Temporarily exchange the head with the selected hotbar slot, then restore both stacks.
+        // All clicks after the configured initial delay are issued without an extra pause.
+        click(mc, player, menu, this.sourceSlot);
+        click(mc, player, menu, this.hotbarSlot);
+        click(mc, player, menu, this.sourceSlot);
+        click(mc, player, menu, this.hotbarSlot);
+        click(mc, player, menu, this.sourceSlot);
+
+        this.pending = false;
+        this.sourceSlot = -1;
+        this.hotbarSlot = -1;
     }
 
     private static void click(Minecraft mc, LocalPlayer player, AbstractContainerMenu menu, int slot) {
