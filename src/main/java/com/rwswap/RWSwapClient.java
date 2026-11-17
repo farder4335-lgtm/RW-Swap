@@ -10,6 +10,7 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
 import net.minecraft.world.inventory.AbstractContainerMenu;
 import net.minecraft.world.inventory.ContainerInput;
+import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 
@@ -21,12 +22,16 @@ import net.fabricmc.fabric.api.client.keymapping.v1.KeyMappingHelper;
 public final class RWSwapClient implements ClientModInitializer {
     private static final int FIRST_STORAGE_SLOT = 9;
     private static final int LAST_STORAGE_SLOT = 44;
+    private static final int FIRST_MAIN_SLOT = 9;
+    private static final int LAST_MAIN_SLOT = 35;
+    private static final int FIRST_HOTBAR_SLOT = 36;
+    private static final int LAST_HOTBAR_SLOT = 44;
     private static final int OFFHAND_SLOT = 45;
 
     private KeyMapping swapKey;
-    private int step;
     private int sourceSlot = -1;
-    private long nextStepAtNanos;
+    private int hotbarSlot = -1;
+    private long executeAtNanos;
     private boolean swapping;
 
     @Override
@@ -49,18 +54,22 @@ public final class RWSwapClient implements ClientModInitializer {
 
         LocalPlayer player = mc.player;
         if (player == null || mc.gameMode == null) {
-            this.swapping = false;
-            this.sourceSlot = -1;
+            reset();
             return;
         }
 
         if (this.swapping) {
+            // Keep horizontal movement stopped while the configured delay and inventory action run.
+            Vec3 velocity = player.getDeltaMovement();
+            player.setDeltaMovement(0.0, velocity.y, 0.0);
+
             if (mc.gui.screen() != null || player.containerMenu != player.inventoryMenu) {
-                this.swapping = false;
-                this.sourceSlot = -1;
+                reset();
                 return;
             }
-            if (System.nanoTime() >= this.nextStepAtNanos) runStep(mc, player);
+            if (System.nanoTime() >= this.executeAtNanos) {
+                runSwap(mc, player);
+            }
             return;
         }
 
@@ -69,68 +78,61 @@ public final class RWSwapClient implements ClientModInitializer {
         AbstractContainerMenu menu = player.inventoryMenu;
         if (player.containerMenu != menu || !menu.getCarried().isEmpty()) return;
 
-        for (int slot = FIRST_STORAGE_SLOT; slot <= LAST_STORAGE_SLOT; slot++) {
-            ItemStack stack = menu.getSlot(slot).getItem();
-            if (stack.is(Items.PLAYER_HEAD)) {
-                this.sourceSlot = slot;
-                this.step = 0;
-                this.swapping = true;
-                this.nextStepAtNanos = System.nanoTime() + SwapConfig.getDelayMillis() * 1_000_000L;
-                return;
-            }
-        }
-
-        player.sendOverlayMessage(Component.translatable("text.rwswap.no_player_head"));
-    }
-
-    private void runStep(Minecraft mc, LocalPlayer player) {
-        AbstractContainerMenu menu = player.inventoryMenu;
-        if (player.containerMenu != menu || mc.gui.screen() != null) {
-            this.swapping = false;
-            this.sourceSlot = -1;
+        int selectedHotbarSlot = FIRST_HOTBAR_SLOT + player.getInventory().getSelectedSlot();
+        this.sourceSlot = findPlayerHeadSlot(menu, selectedHotbarSlot);
+        if (this.sourceSlot < 0) {
+            player.sendOverlayMessage(Component.translatable("text.rwswap.no_player_head"));
             return;
         }
 
-        switch (this.step) {
-            case 0 -> {
-                if (!menu.getSlot(this.sourceSlot).getItem().is(Items.PLAYER_HEAD)
-                        || !menu.getCarried().isEmpty()) {
-                    cancel(player);
-                    return;
-                }
-                click(mc, player, menu, this.sourceSlot);
-            }
-            case 1 -> {
-                if (!menu.getCarried().is(Items.PLAYER_HEAD)) {
-                    cancel(player);
-                    return;
-                }
-                click(mc, player, menu, OFFHAND_SLOT);
-            }
-            case 2 -> {
-                if (!menu.getCarried().isEmpty()) {
-                    click(mc, player, menu, this.sourceSlot);
-                }
-            }
-            default -> {
-                if (!menu.getSlot(OFFHAND_SLOT).getItem().is(Items.PLAYER_HEAD)
-                        || !menu.getCarried().isEmpty()) {
-                    player.sendOverlayMessage(Component.translatable("text.rwswap.swap_failed"));
-                }
-                this.swapping = false;
-                this.sourceSlot = -1;
-                return;
-            }
-        }
+        // Use the selected hotbar slot unless it contains the head itself.
+        this.hotbarSlot = selectedHotbarSlot == this.sourceSlot
+                ? FIRST_HOTBAR_SLOT + ((player.getInventory().getSelectedSlot() + 1) % 9)
+                : selectedHotbarSlot;
 
-        this.step++;
-        this.nextStepAtNanos = System.nanoTime() + SwapConfig.getDelayMillis() * 1_000_000L;
+        this.swapping = true;
+        this.executeAtNanos = System.nanoTime() + SwapConfig.getDelayMillis() * 1_000_000L;
     }
 
-    private void cancel(LocalPlayer player) {
+    private static int findPlayerHeadSlot(AbstractContainerMenu menu, int selectedHotbarSlot) {
+        for (int slot = FIRST_MAIN_SLOT; slot <= LAST_MAIN_SLOT; slot++) {
+            if (menu.getSlot(slot).getItem().is(Items.PLAYER_HEAD)) return slot;
+        }
+        for (int slot = FIRST_HOTBAR_SLOT; slot <= LAST_HOTBAR_SLOT; slot++) {
+            if (slot != selectedHotbarSlot && menu.getSlot(slot).getItem().is(Items.PLAYER_HEAD)) return slot;
+        }
+        return -1;
+    }
+
+    private void runSwap(Minecraft mc, LocalPlayer player) {
+        AbstractContainerMenu menu = player.inventoryMenu;
+        if (player.containerMenu != menu || mc.gui.screen() != null
+                || !menu.getCarried().isEmpty()
+                || this.sourceSlot < FIRST_STORAGE_SLOT
+                || this.sourceSlot > LAST_STORAGE_SLOT
+                || !menu.getSlot(this.sourceSlot).getItem().is(Items.PLAYER_HEAD)) {
+            reset();
+            player.sendOverlayMessage(Component.translatable("text.rwswap.swap_failed"));
+            return;
+        }
+
+        // Cycle the selected hotbar stack through the original inventory slot.
+        // This temporarily puts the head in the hotbar, then finishes with the head in offhand.
+        click(mc, player, menu, this.sourceSlot);
+        click(mc, player, menu, this.hotbarSlot);
+        click(mc, player, menu, this.sourceSlot);
+        click(mc, player, menu, this.hotbarSlot);
+        click(mc, player, menu, OFFHAND_SLOT);
+        click(mc, player, menu, this.sourceSlot);
+        click(mc, player, menu, this.hotbarSlot);
+
+        reset();
+    }
+
+    private void reset() {
         this.swapping = false;
         this.sourceSlot = -1;
-        player.sendOverlayMessage(Component.translatable("text.rwswap.swap_failed"));
+        this.hotbarSlot = -1;
     }
 
     private static void click(Minecraft mc, LocalPlayer player, AbstractContainerMenu menu, int slot) {
