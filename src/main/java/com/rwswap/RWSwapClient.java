@@ -5,6 +5,7 @@ import org.lwjgl.glfw.GLFW;
 
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.Options;
 import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
@@ -32,6 +33,7 @@ public final class RWSwapClient implements ClientModInitializer {
     private int hotbarSlot = -1;
     private long executeAtNanos;
     private boolean swapping;
+    private boolean keysReleased;
 
     @Override
     public void onInitializeClient() {
@@ -44,7 +46,34 @@ public final class RWSwapClient implements ClientModInitializer {
                 GLFW.GLFW_KEY_H,
                 category
         ));
+        ClientTickEvents.START_CLIENT_TICK.register(this::onStartTick);
         ClientTickEvents.END_CLIENT_TICK.register(this::onClientTick);
+    }
+
+    /**
+     * Runs BEFORE the player processes input for this tick. While a swap is pending the movement keys
+     * are forced up so the player really stops (zeroing velocity at the end of the tick is not enough,
+     * because a held key would push the player again on the next tick).
+     */
+    private void onStartTick(Minecraft mc) {
+        LocalPlayer player = mc.player;
+        if (!this.swapping || player == null) return;
+        holdStill(mc, player);
+    }
+
+    private void holdStill(Minecraft mc, LocalPlayer player) {
+        Options options = mc.options;
+        options.keyUp.setDown(false);
+        options.keyDown.setDown(false);
+        options.keyLeft.setDown(false);
+        options.keyRight.setDown(false);
+        options.keyJump.setDown(false);
+        options.keySprint.setDown(false);
+        this.keysReleased = true;
+
+        player.setSprinting(false);
+        Vec3 motion = player.getDeltaMovement();
+        player.setDeltaMovement(0.0, motion.y, 0.0);
     }
 
     private void onClientTick(Minecraft mc) {
@@ -58,9 +87,8 @@ public final class RWSwapClient implements ClientModInitializer {
         }
 
         if (this.swapping) {
-            // Cancel existing momentum immediately while the pause is active.
-            player.setDeltaMovement(Vec3.ZERO);
-            player.setSprinting(false);
+            // Keep the player still while the pause is active.
+            holdStill(mc, player);
 
             if (mc.gui.screen() != null || player.containerMenu != player.inventoryMenu) {
                 reset();
@@ -126,6 +154,12 @@ public final class RWSwapClient implements ClientModInitializer {
     }
 
     private void reset() {
+        Minecraft mc = Minecraft.getInstance();
+        if (this.keysReleased && mc.gui.screen() == null) {
+            // Give control back: re-sync movement keys with the keys that are physically held.
+            KeyMapping.setAll();
+        }
+        this.keysReleased = false;
         this.swapping = false;
         this.sourceSlot = -1;
         this.hotbarSlot = -1;
